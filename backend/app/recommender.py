@@ -64,8 +64,14 @@ class RecommenderEngine:
         movie_id: int,
         top_k: int = DEFAULT_TOP_K,
         alpha: float = DEFAULT_ALPHA,
+        mode: str = "hybrid",
     ) -> RecommendationResult:
-        """Return hybrid recommendations for a given base movie ID."""
+        """
+        mode:
+          - "content": only content-based similarity
+          - "collab": only collaborative similarity
+          - "hybrid": weighted combination
+        """
         if not self._initialized:
             self.init()
 
@@ -78,15 +84,25 @@ class RecommenderEngine:
         content_norm = normalize_scores(content_scores)
         collab_norm = normalize_scores(collab_scores)
 
-        alpha = float(min(max(alpha, 0.0), 1.0))
-        hybrid_scores = alpha * collab_norm + (1.0 - alpha) * content_norm
+        mode = (mode or "hybrid").lower()
+        if mode not in {"content", "collab", "hybrid"}:
+            mode = "hybrid"
+
+        if mode == "content":
+            final_scores = content_norm
+        elif mode == "collab":
+            final_scores = collab_norm
+        else:
+            # hybrid
+            alpha = float(min(max(alpha, 0.0), 1.0))
+            final_scores = alpha * collab_norm + (1.0 - alpha) * content_norm
 
         base_row = self._row_idx_from_movie_id(movie_id)
         if base_row is not None:
-            hybrid_scores[base_row] = -np.inf  # never recommend the base movie itself
+            final_scores[base_row] = -np.inf  # exclude the base movie
 
-        top_indices = np.argsort(hybrid_scores)[::-1][:top_k]
-        scores = hybrid_scores[top_indices]
+        top_indices = np.argsort(final_scores)[::-1][:top_k]
+        scores = final_scores[top_indices]
 
         recs: List[Dict] = []
         for idx, score in zip(top_indices, scores):
@@ -108,6 +124,7 @@ class RecommenderEngine:
             base_title=base_title,
             recommendations=recs,
         )
+
 
     def list_sample_movies(self, n: int = 20) -> List[Dict]:
         """Return a random subset of movies for dropdowns etc."""

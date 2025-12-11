@@ -21,6 +21,12 @@
         Choose a movie and we’ll recommend similar titles based on genres, descriptions, and what similar users liked.
       </p>
 
+      <div class="mode-tabs" id="modeTabs">
+        <button class="mode-tab active" data-mode="hybrid">Hybrid</button>
+        <button class="mode-tab" data-mode="content">Content only</button>
+        <button class="mode-tab" data-mode="collab">Collaborative only</button>
+      </div>
+
       <div class="form-row">
         <label for="movieSelect">Movie</label>
         <select id="movieSelect">
@@ -41,7 +47,7 @@
             <span id="alphaValue">0.5</span>
           </div>
           <div class="hint small">
-            0 = content only, 1 = collaborative only
+            0 = content only, 1 = collaborative only. Used only in hybrid mode.
           </div>
         </div>
       </div>
@@ -56,11 +62,34 @@
     <section class="results-section">
       <h2>Recommendations</h2>
       <p id="baseMovieTitle" class="base-movie"></p>
-      <div id="resultsGrid" class="results-grid">
-        <!-- Recommendation cards go here -->
-      </div>
+      <div id="resultsGrid" class="results-grid"></div>
     </section>
   </main>
+
+  <!-- Modal for detailed movie info -->
+  <div id="movieModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-dialog">
+      <button class="modal-close" id="modalCloseBtn">✕</button>
+      <div class="modal-content">
+        <div class="modal-poster-wrapper">
+          <img id="modalPoster" class="modal-poster" alt="">
+        </div>
+        <div class="modal-body">
+          <h2 id="modalTitle"></h2>
+          <p id="modalMeta" class="modal-meta"></p>
+          <p id="modalOverview" class="modal-overview"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>
+      Backend: FastAPI · Model: Hybrid recommender ·
+      <span class="muted">Portfolio demo</span>
+    </p>
+  </footer>
 
   <script src="app.js"></script>
 </body>

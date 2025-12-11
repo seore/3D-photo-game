@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 
 class RecommendRequest(BaseModel):
@@ -10,6 +10,10 @@ class RecommendRequest(BaseModel):
         ge=0.0,
         le=1.0,
         description="Hybrid weight: 1.0 = collaborative only, 0.0 = content only",
+    )
+    mode: Literal["hybrid", "content", "collab"] = Field(
+        "hybrid",
+        description="Recommendation mode: hybrid, content, or collab",
     )
 
 

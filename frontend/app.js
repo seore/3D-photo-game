@@ -1,3 +1,5 @@
+// frontend/app.js
+
 const API_BASE_URL = "http://localhost:8000";
 
 const movieSelect = document.getElementById("movieSelect");
@@ -8,34 +10,20 @@ const baseMovieTitleEl = document.getElementById("baseMovieTitle");
 const topKInput = document.getElementById("topK");
 const alphaSlider = document.getElementById("alpha");
 const alphaValue = document.getElementById("alphaValue");
+const modeTabs = document.querySelectorAll(".mode-tab");
 
-const posterCache = new Map();
+// Modal elements
+const modalEl = document.getElementById("movieModal");
+const modalCloseBtn = document.getElementById("modalCloseBtn");
+const modalPoster = document.getElementById("modalPoster");
+const modalTitle = document.getElementById("modalTitle");
+const modalMeta = document.getElementById("modalMeta");
+const modalOverview = document.getElementById("modalOverview");
 
-function splitTitleAndYear(fullTitle) {
-  const match = fullTitle.match(/^(.*)\s+\((\d{4})\)$/);
-  if (!match) return { title: fullTitle, year: null };
-  return { title: match[1], year: match[2] };
-}
+let currentMode = "hybrid";
+const favorites = new Set(JSON.parse(localStorage.getItem("favorites") || "[]"));
 
-async function fetchPosterUrl(fullTitle) {
-  const { title, year } = splitTitleAndYear(fullTitle);
-
-  const params = new URLSearchParams({ title });
-  if (year) params.append("year", year);
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/poster?${params.toString()}`);
-    if (!res.ok) {
-      throw new Error("Poster endpoint error");
-    }
-    const data = await res.json();
-    return data.poster_url || null;
-  } catch (err) {
-    console.warn("Poster fetch failed:", fullTitle, err);
-    return null;
-  }
-}
-
+// --- helpers ---
 
 async function fetchJSON(url, options = {}) {
   const res = await fetch(url, {
@@ -47,7 +35,6 @@ async function fetchJSON(url, options = {}) {
     const text = await res.text();
     throw new Error(text || `Request failed: ${res.status}`);
   }
-
   return res.json();
 }
 
@@ -62,6 +49,65 @@ function clearResults() {
   resultsGrid.innerHTML = "";
   baseMovieTitleEl.textContent = "";
 }
+
+function splitTitleAndYear(fullTitle) {
+  const match = fullTitle.match(/^(.*)\s+\((\d{4})\)$/);
+  if (!match) return { title: fullTitle, year: null };
+  return { title: match[1], year: match[2] };
+}
+
+async function fetchPosterUrl(fullTitle) {
+  const { title, year } = splitTitleAndYear(fullTitle);
+  const params = new URLSearchParams({ title });
+  if (year) params.append("year", year);
+
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/poster?${params.toString()}`
+    );
+    if (!res.ok) throw new Error("poster endpoint error");
+    const data = await res.json();
+    return data.poster_url || null;
+  } catch (err) {
+    console.warn("Poster fetch failed:", fullTitle, err);
+    return null;
+  }
+}
+
+async function fetchMovieDetails(fullTitle) {
+  const { title, year } = splitTitleAndYear(fullTitle);
+  const params = new URLSearchParams({ title });
+  if (year) params.append("year", year);
+
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/movie_details?${params.toString()}`
+    );
+    if (!res.ok) throw new Error("details endpoint error");
+    const data = await res.json();
+    return data.details || null;
+  } catch (err) {
+    console.warn("Details fetch failed:", fullTitle, err);
+    return null;
+  }
+}
+
+// --- favorites ---
+
+function saveFavorites() {
+  localStorage.setItem("favorites", JSON.stringify([...favorites]));
+}
+
+function toggleFavorite(movieId) {
+  if (favorites.has(movieId)) {
+    favorites.delete(movieId);
+  } else {
+    favorites.add(movieId);
+  }
+  saveFavorites();
+}
+
+// --- UI rendering ---
 
 function renderMoviesDropdown(movies) {
   movieSelect.innerHTML = "";
@@ -96,14 +142,21 @@ function renderRecommendations(baseTitle, recommendations) {
     return;
   }
 
-  baseMovieTitleEl.textContent = `Because you selected "${baseTitle}", you might also enjoy:`;
+  const modeLabel =
+    currentMode === "content"
+      ? "content-based similarity"
+      : currentMode === "collab"
+      ? "collaborative filtering"
+      : "a hybrid of content and collaborative signals";
+
+  baseMovieTitleEl.textContent = `Because you selected "${baseTitle}", you might also enjoy (using ${modeLabel}):`;
 
   recommendations.forEach((rec) => {
     const card = document.createElement("div");
     card.className = "movie-card";
 
     const posterWrapper = document.createElement("div");
-    posterWrapper.className = "movie-poster-wrapper";
+    posterWrapper.className = "movie-poster-wrapper skeleton";
 
     const posterImg = document.createElement("img");
     posterImg.className = "movie-poster";
@@ -124,20 +177,72 @@ function renderRecommendations(baseTitle, recommendations) {
     content.appendChild(title);
     content.appendChild(score);
 
+    // Favorite button
+    const favBtn = document.createElement("button");
+    favBtn.className = "favorite-btn";
+    favBtn.innerHTML = "★";
+    if (favorites.has(rec.movie_id)) {
+      favBtn.classList.add("active");
+    }
+
+    favBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleFavorite(rec.movie_id);
+      favBtn.classList.toggle("active");
+    });
+
+    // Open modal on card click
+    card.addEventListener("click", async () => {
+      await openMovieModal(rec.title);
+    });
+
     card.appendChild(posterWrapper);
     card.appendChild(content);
+    card.appendChild(favBtn);
     resultsGrid.appendChild(card);
 
-    // async load poster, update when it arrives
+    // async load poster
     fetchPosterUrl(rec.title).then((url) => {
+      posterWrapper.classList.remove("skeleton");
       if (url) {
         posterImg.src = url;
-      } else {
-        posterWrapper.classList.add("no-poster"); // for special styling if needed
       }
     });
   });
 }
+
+// --- Modal ---
+
+async function openMovieModal(fullTitle) {
+  modalTitle.textContent = fullTitle;
+  modalMeta.textContent = "Loading details…";
+  modalOverview.textContent = "";
+  modalPoster.src = "";
+  modalEl.classList.remove("hidden");
+
+  const details = await fetchMovieDetails(fullTitle);
+  if (!details) {
+    modalMeta.textContent = "No additional details found.";
+    return;
+  }
+
+  modalTitle.textContent = details.title || fullTitle;
+  const metaParts = [];
+  if (details.release_date) metaParts.push(details.release_date);
+  if (details.vote_average)
+    metaParts.push(`Rating: ${details.vote_average.toFixed(1)} (${details.vote_count} votes)`);
+  modalMeta.textContent = metaParts.join(" • ");
+  modalOverview.textContent = details.overview || "No overview available.";
+  if (details.poster_url) {
+    modalPoster.src = details.poster_url;
+  }
+}
+
+function closeModal() {
+  modalEl.classList.add("hidden");
+}
+
+// --- data flows ---
 
 async function loadMovies() {
   try {
@@ -169,6 +274,7 @@ async function getRecommendations() {
     movie_id: Number(selectedMovieId),
     top_k: topK,
     alpha,
+    mode: currentMode,
   };
 
   try {
@@ -190,6 +296,8 @@ async function getRecommendations() {
   }
 }
 
+// --- init ---
+
 function initUI() {
   alphaValue.textContent = alphaSlider.value;
   alphaSlider.addEventListener("input", () => {
@@ -199,6 +307,22 @@ function initUI() {
   recommendBtn.addEventListener("click", (e) => {
     e.preventDefault();
     getRecommendations();
+  });
+
+  modeTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      modeTabs.forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentMode = tab.dataset.mode;
+    });
+  });
+
+  // modal closing
+  modalCloseBtn.addEventListener("click", closeModal);
+  modalEl.addEventListener("click", (e) => {
+    if (e.target.classList.contains("modal-backdrop")) {
+      closeModal();
+    }
   });
 }
 

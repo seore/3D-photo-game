@@ -1,9 +1,8 @@
-import os
-import httpx
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+import os
+import httpx
 
 from .schemas import (
     RecommendRequest,
@@ -16,19 +15,18 @@ from .recommender import engine
 
 load_dotenv()
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-TMDB_IMG_BASE = "https://image.tmdb.org/t/p/w342"
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
-
+TMDB_IMG_BASE = "https://image.tmdb.org/t/p/w342"
 
 app = FastAPI(
     title="Cine Recommender API",
     description="Hybrid movie recommendation system (content + collaborative filtering)",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ok for dev; restrict in prod
+    allow_origins=["*"],  # for dev; tighten later
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -73,6 +71,7 @@ def recommend(payload: RecommendRequest):
             movie_id=payload.movie_id,
             top_k=payload.top_k,
             alpha=payload.alpha,
+            mode=payload.mode,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -100,8 +99,13 @@ def recommend(payload: RecommendRequest):
         ],
     )
 
-@app.get("/poster", tags=["poster"])
+
+@app.get("/poster", tags=["tmdb"])
 async def get_poster(title: str, year: int | None = None):
+    """
+    Proxy endpoint to fetch a movie poster URL from TMDB
+    without exposing the API key to the frontend.
+    """
     if not TMDB_API_KEY:
         return {"poster_url": None}
 
@@ -134,3 +138,50 @@ async def get_poster(title: str, year: int | None = None):
         return {"poster_url": None}
 
     return {"poster_url": f"{TMDB_IMG_BASE}{poster_path}"}
+
+
+@app.get("/movie_details", tags=["tmdb"])
+async def movie_details(title: str, year: int | None = None):
+    """
+    Fetch richer movie info for modal display.
+    """
+    if not TMDB_API_KEY:
+        return {"details": None}
+
+    params = {
+        "api_key": TMDB_API_KEY,
+        "query": title,
+    }
+    if year:
+        params["year"] = year
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"{TMDB_BASE_URL}/search/movie",
+                params=params,
+                timeout=10.0,
+            )
+        res.raise_for_status()
+        data = res.json()
+    except Exception as e:
+        print(f"[ERROR] TMDB details request failed: {e}")
+        return {"details": None}
+
+    results = data.get("results") or []
+    if not results:
+        return {"details": None}
+
+    best = results[0]
+
+    details = {
+        "title": best.get("title"),
+        "overview": best.get("overview"),
+        "release_date": best.get("release_date"),
+        "vote_average": best.get("vote_average"),
+        "vote_count": best.get("vote_count"),
+        "poster_url": f"{TMDB_IMG_BASE}{best['poster_path']}"
+        if best.get("poster_path")
+        else None,
+    }
+    return {"details": details}
