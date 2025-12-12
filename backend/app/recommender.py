@@ -36,13 +36,6 @@ class RecommendationResult:
 
 
 class RecommenderEngine:
-    """
-    Hybrid movie recommender:
-    - Content-based: TF-IDF similarities between movie descriptions
-      (genres + overview/description/title)
-    - Collaborative: item-based similarity over a user-item rating matrix.
-    """
-
     def __init__(self) -> None:
         self._initialized = False
 
@@ -56,6 +49,7 @@ class RecommenderEngine:
         self._load_movies()
         self._load_content_model()
         self._load_collaborative_models()
+        self._load_ncf_embeddings()
 
         self._initialized = True
 
@@ -93,13 +87,12 @@ class RecommenderEngine:
         elif mode == "collab":
             final_scores = collab_norm
         else:
-            # hybrid
             alpha = float(min(max(alpha, 0.0), 1.0))
             final_scores = alpha * collab_norm + (1.0 - alpha) * content_norm
 
         base_row = self._row_idx_from_movie_id(movie_id)
         if base_row is not None:
-            final_scores[base_row] = -np.inf  # exclude the base movie
+            final_scores[base_row] = -np.inf  # exclude the base movies
 
         top_indices = np.argsort(final_scores)[::-1][:top_k]
         scores = final_scores[top_indices]
@@ -161,13 +154,19 @@ class RecommenderEngine:
 
     def _load_content_model(self) -> None:
         """
-        Load TF-IDF vectorizer and build the content matrix for all movies
-        using the same vocabulary that was fit during training.
+        SBERT embeddings. If not then TF-IDF.
         """
-        with open(CONTENT_VECTORIZER_PATH, "rb") as f:
-            payload = pickle.load(f)
-
-        self.vectorizer: TfidfVectorizer = payload["vectorizer"]
+        sbert_path = MODELS_DIR / "sbert_embeddings.npz"
+        if sbert_path.exists():
+            print("[CONTENT] Using SBERT embeddings")
+            data = np.load(sbert_path)
+            self.sbert_embeddings = data["embeddings"]
+            self.use_sbert = True
+            return
+        
+        # --- TF-IDF fallback ---
+        print("[CONTENT] SBERT not found, falling back to TF-IDF")
+        from sklearn.feature_extraction.text import TfidfVectorizer
 
         text_parts = [self.movies["genres"].fillna("")]
         if "overview" in self.movies.columns:
@@ -178,7 +177,9 @@ class RecommenderEngine:
             text_parts.append(self.movies["title"].fillna(""))
 
         combined = text_parts[0].astype(str) + " " + text_parts[1].astype(str)
-        self.content_matrix = self.vectorizer.transform(combined)
+        self.vectorizer = TfidfVectorizer(stop_words="english", max_features=5000)
+        self.content_matrix = self.vectorizer.fit_transform(combined)
+        self.use_sbert = False
 
     def _load_collaborative_models(self) -> None:
         """
@@ -194,8 +195,24 @@ class RecommenderEngine:
         self.user_enc = encoders["user_enc"]
         self.movie_enc = encoders["movie_enc"]
 
-        # item-item similarity: movies x movies (in encoded index space)
         self.item_similarity = cosine_similarity(self.user_item_matrix.T)
+
+    def _load_ncf_embeddings(self) -> None:
+        path = MODELS_DIR / "ncf_item_embeddings.npz"
+        if not path.exists():
+            print("[COLLAB] NCF embeddings no found, use CF instead.")
+            self.ncf_embeddings = None
+            return
+        
+        data = np.load(path)
+        self.ncf_movie_ids = data["movie_ids"].astype(int)
+        self.ncf_embeddings = data["embeddings"]
+        self.ncf_movieid_to_idx = {
+            int(mid): idx for idx, mid in enumerate(self.ncf_movie_ids)
+        }
+
+        print("[COLLAB] Loaded NCF item embeddings:", self.ncf_embeddings.shape)
+
 
     # ---------- INTERNAL HELPERS ----------
 
@@ -221,30 +238,55 @@ class RecommenderEngine:
         row_idx = self._row_idx_from_movie_id(movie_id)
         if row_idx is None:
             return np.zeros(self.movies.shape[0])
+        
+        # SBERT path
+        if getattr(self, "use_sbert", False) and hasattr(self, "sbert_embeddings"):
+            if row_idx >= self.sbert_embeddings.shape[0]:
+                return np.zeros(self.movies.shape[0])
+            vec = self.sbert_embeddings[row_idx : row_idx + 1]  # (1, d)
+            sim = cosine_similarity(vec, self.sbert_embeddings)[0]
+            return sim
 
+        # TF-IDF fallback
         movie_vec = self.content_matrix[row_idx]
         sim = cosine_similarity(movie_vec, self.content_matrix)[0]
         return sim
 
     def _collab_scores_for_movie(self, movie_id: int) -> np.ndarray:
-        enc_idx = self._encoded_idx_from_movie_id(movie_id)
-        if enc_idx is None or enc_idx >= self.item_similarity.shape[0]:
+        # Prefer NCF embeddings if available
+        if getattr(self, "ncf_embeddings", None) is not None:
+            idx = getattr(self, "ncf_movieid_to_idx", {}).get(int(movie_id))
+            if idx is None:
+                return np.zeros(self.movies.shape[0])
+
+            vec = self.ncf_embeddings[idx : idx + 1]  # (1, d)
+            sims = cosine_similarity(vec, self.ncf_embeddings)[0]  # (num_items,)
+
+            scores_aligned = np.zeros(self.movies.shape[0])
+            for mid, score in zip(self.ncf_movie_ids, sims):
+                row_idx = self._row_idx_from_movie_id(int(mid))
+                if row_idx is not None:
+                    scores_aligned[row_idx] = score
+            return scores_aligned
+
+        # Fallback: traditional item-item similarity from ratings
+        movie_idx = self._get_encoded_idx_from_movie_id(movie_id)
+        if movie_idx is None or movie_idx >= self.item_similarity.shape[0]:
             return np.zeros(self.movies.shape[0])
 
-        sim_scores = self.item_similarity[enc_idx]  # length = num_movies_encoded
-
+        sim_scores = self.item_similarity[movie_idx]
         encoded_indices = np.arange(len(sim_scores))
         movie_ids = self.movie_enc.inverse_transform(encoded_indices)
 
         scores_aligned = np.zeros(self.movies.shape[0])
-        for idx_enc, score in zip(encoded_indices, sim_scores):
-            mid = int(movie_ids[idx_enc])
+        for enc_idx, score in zip(encoded_indices, sim_scores):
+            mid = int(movie_ids[enc_idx])
             row_idx = self._row_idx_from_movie_id(mid)
             if row_idx is not None:
                 scores_aligned[row_idx] = score
-
         return scores_aligned
 
 
-# global singleton engine used by main.py
+
+# singleton engine used by main.py
 engine = RecommenderEngine()
