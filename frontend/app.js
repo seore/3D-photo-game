@@ -100,6 +100,24 @@ async function fetchMovieDetails(fullTitle) {
   }
 }
 
+function ensureMovieOption(movie) {
+  // Find if this movie already exists in the dropdown
+  const options = Array.from(movieSelect.options);
+  let opt = options.find((o) => Number(o.value) === movie.movie_id);
+
+  // If not, create a new option and append it
+  if (!opt) {
+    opt = document.createElement("option");
+    opt.value = movie.movie_id;
+    opt.textContent = `${movie.title}${movie.genres ? ` (${movie.genres})` : ""}`;
+    movieSelect.appendChild(opt);
+  }
+
+  // Select it
+  movieSelect.value = movie.movie_id;
+}
+
+
 function clearSuggestions() {
   searchSuggestionsContainer.innerHTML = "";
 }
@@ -117,7 +135,7 @@ function renderSearchSuggestions(movies) {
     item.textContent = `${m.title}${m.genres ? ` (${m.genres})` : ""}`;
     item.addEventListener("click", () => {
       // Set dropdown + input when clicking a suggestion
-      movieSelect.value = m.movie_id;
+      ensureMovieOption(m);
       movieSearchInput.value = m.title;
       clearSuggestions();
     });
@@ -167,7 +185,7 @@ async function searchAndSelectFirst() {
     const first = movies[0];
 
     // select in dropdown & input
-    movieSelect.value = first.movie_id;
+    ensureMovieOption(first);
     movieSearchInput.value = first.title;
     clearSuggestions();
 
