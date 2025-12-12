@@ -285,6 +285,26 @@ class RecommenderEngine:
             if row_idx is not None:
                 scores_aligned[row_idx] = score
         return scores_aligned
+    
+    # movie search
+    def search_movies(self, query: str, limit: int = 20) -> list[dict]:
+        if not query:
+            return self.list_sample_movies(limit)
+        q = query.strip().lower()
+        if not q:
+            return self.list_sample_movies(limit)
+
+        mask = self.movies["title"].str.lower().str.contains(q, na=False)
+        results = self.movies[mask].head(limit)[["movieId", "title", "genres"]]
+        return [
+            {
+                "movie_id": int(row["movieId"]),
+                "title": str(row["title"]),
+                "genres": None if pd.isna(row["genres"]) else str(row["genres"]),
+            }
+            for _, row in results.iterrows()
+        ]
+
 
 
 

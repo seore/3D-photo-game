@@ -1,5 +1,3 @@
-// frontend/app.js
-
 const API_BASE_URL = "http://localhost:8000";
 
 const movieSelect = document.getElementById("movieSelect");
@@ -12,14 +10,17 @@ const alphaSlider = document.getElementById("alpha");
 const alphaValue = document.getElementById("alphaValue");
 const modeTabs = document.querySelectorAll(".mode-tab");
 
-// Modal elements
+// Modal + Search elements
 const modalEl = document.getElementById("movieModal");
 const modalCloseBtn = document.getElementById("modalCloseBtn");
 const modalPoster = document.getElementById("modalPoster");
 const modalTitle = document.getElementById("modalTitle");
 const modalMeta = document.getElementById("modalMeta");
 const modalOverview = document.getElementById("modalOverview");
+const movieSearchInput = document.getElementById("movieSearchInput");
+const searchSuggestionsContainer = document.getElementById("searchSuggestions");
 
+let searchTimeout = null;
 let currentMode = "hybrid";
 const favorites = new Set(JSON.parse(localStorage.getItem("favorites") || "[]"));
 
@@ -91,6 +92,51 @@ async function fetchMovieDetails(fullTitle) {
     return null;
   }
 }
+
+function clearSuggestions() {
+  searchSuggestionsContainer.innerHTML = "";
+}
+
+function renderSearchSuggestions(movies) {
+  clearSuggestions();
+  if (!movies || movies.length === 0) return;
+
+  const list = document.createElement("div");
+  list.className = "search-suggestions-list";
+
+  movies.forEach((m) => {
+    const item = document.createElement("div");
+    item.className = "search-suggestion-item";
+    item.textContent = `${m.title}${m.genres ? ` (${m.genres})` : ""}`;
+    item.addEventListener("click", () => {
+      // Set dropdown to selected movie
+      movieSelect.value = m.movie_id;
+      movieSearchInput.value = m.title;
+      clearSuggestions();
+    });
+    list.appendChild(item);
+  });
+
+  searchSuggestionsContainer.appendChild(list);
+}
+
+async function handleSearchInput() {
+  const query = movieSearchInput.value.trim();
+  if (!query) {
+    clearSuggestions();
+    return;
+  }
+  try {
+    const data = await fetchJSON(
+      `${API_BASE_URL}/search_movies?` +
+        new URLSearchParams({ query, limit: 10 }).toString()
+    );
+    renderSearchSuggestions(data.movies);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 
 // --- favorites ---
 
@@ -323,6 +369,20 @@ function initUI() {
     if (e.target.classList.contains("modal-backdrop")) {
       closeModal();
     }
+  });
+
+  // movie search
+  movieSearchInput.addEventListener("input", () => {
+    clearSuggestions();
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(handleSearchInput, 250);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!searchSuggestionsContainer.contains(e.target) 
+      && e.target !== movieSearchInput) {
+    clearSuggestions();
+      }
   });
 }
 

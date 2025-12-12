@@ -185,3 +185,23 @@ async def movie_details(title: str, year: int | None = None):
         else None,
     }
     return {"details": details}
+
+
+@app.get("/search_movies", tags=["movies"])
+def search_movies(query: str, limit: int = 10):
+    try:
+        engine.init()
+        movies = engine.search_movies(query, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "movies": [
+            {
+                "movie_id": m["movie_id"],
+                "title": m["title"],
+                "genres": m.get("genres"),
+            }
+            for m in movies
+        ]
+    }
