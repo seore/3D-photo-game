@@ -20,17 +20,16 @@
       <p class="hint">
         Choose a movie and we’ll recommend similar titles based on genres, descriptions, and what similar users liked.
       </p>
+      <div class="form-row">
+        <label for="movieSearchInput">Search for a movie</label>
+        <input type="text" id="movieSearchInput" placeholder="Type a movie title...">
+        <div id="searchSuggestions" class="search-suggestions"></div>
+      </div>
 
       <div class="mode-tabs" id="modeTabs">
         <button class="mode-tab active" data-mode="hybrid">Hybrid</button>
         <button class="mode-tab" data-mode="content">Content only</button>
         <button class="mode-tab" data-mode="collab">Collaborative only</button>
-      </div>
-
-      <div class="form-row">
-        <label for="movieSearchInput">Search for a movie</label>
-        <input type="text" id="movieSearchInput" placeholder="Type a movie title...">
-        <div id="searchSuggestions" class="search-suggestions"></div>
       </div>
 
       <div class="form-row">
@@ -66,6 +65,12 @@
     </section>
 
     <section class="results-section">
+      <h2>Recommendations</h2>
+      <p id="baseMovieTitle" class="base-movie"></p>
+      <div id="resultsGrid" class="results-grid"></div>
+    </section>
+
+    <section class="results-section">
       <h2>Explore movies</h2>
       <div class="form-row-inline">
         <div class="form-field">
@@ -82,13 +87,6 @@
       <button id="exploreLoadMore" class="primary-btn" style="margin-top: 10px;">
         Load more
       </button>
-    </section>
-
-
-    <section class="results-section">
-      <h2>Recommendations</h2>
-      <p id="baseMovieTitle" class="base-movie"></p>
-      <div id="resultsGrid" class="results-grid"></div>
     </section>
   </main>
 

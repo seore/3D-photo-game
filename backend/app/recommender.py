@@ -19,10 +19,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 MODELS_DIR = BASE_DIR / "models"
 
-MOVIES_PATH = DATA_DIR / "movies.csv"
+MOVIES_COMBINED_PATH = DATA_DIR / "movies_combined.csv"
+MOVIES_PATH = MOVIES_COMBINED_PATH if MOVIES_COMBINED_PATH.exists() else (DATA_DIR / "movies.csv")
+
 CONTENT_VECTORIZER_PATH = MODELS_DIR / "content_vectorizer.pkl"
 ENCODERS_PATH = MODELS_DIR / "movie_id_encoder.pkl"
 USER_ITEM_MATRIX_PATH = MODELS_DIR / "user_item_matrix.npz"
+
 
 DEFAULT_TOP_K = 10
 DEFAULT_ALPHA = 0.5
@@ -188,7 +191,7 @@ class RecommenderEngine:
         self.movies = load_csv_with_required_columns(
             MOVIES_PATH,
             ["movieId", "title"],
-            friendly_name="movies.csv",
+            friendly_name="movies_combined.csv",
         ).reset_index(drop=True)
 
         if "genres" not in self.movies.columns:
@@ -341,7 +344,7 @@ class RecommenderEngine:
         if not q:
             return self.list_sample_movies(limit)
 
-        mask = self.movies["title"].str.lower().str.contains(q, na=False)
+        mask = self.movies["title"].str.lower().str.contains(q, case=False, regex=False, na=False)
         results = self.movies[mask].head(limit)[["movieId", "title", "genres"]]
         return [
             {

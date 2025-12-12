@@ -116,7 +116,7 @@ function renderSearchSuggestions(movies) {
     item.className = "search-suggestion-item";
     item.textContent = `${m.title}${m.genres ? ` (${m.genres})` : ""}`;
     item.addEventListener("click", () => {
-      // Set dropdown to selected movie
+      // Set dropdown + input when clicking a suggestion
       movieSelect.value = m.movie_id;
       movieSearchInput.value = m.title;
       clearSuggestions();
@@ -133,14 +133,49 @@ async function handleSearchInput() {
     clearSuggestions();
     return;
   }
+
   try {
+    const params = new URLSearchParams({ query, limit: "10" });
     const data = await fetchJSON(
-      `${API_BASE_URL}/search_movies?` +
-        new URLSearchParams({ query, limit: 10 }).toString()
+      `${API_BASE_URL}/search_movies?${params.toString()}`
     );
-    renderSearchSuggestions(data.movies);
+    renderSearchSuggestions(data.movies || []);
   } catch (err) {
     console.error(err);
+  }
+}
+
+async function searchAndSelectFirst() {
+  const query = movieSearchInput.value.trim();
+  if (!query) {
+    setStatus("Type a movie name before pressing Enter.", "error");
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ query, limit: "10" });
+    const data = await fetchJSON(
+      `${API_BASE_URL}/search_movies?${params.toString()}`
+    );
+
+    const movies = data.movies || [];
+    if (movies.length === 0) {
+      setStatus(`No results for "${query}"`, "error");
+      return;
+    }
+
+    const first = movies[0];
+
+    // select in dropdown & input
+    movieSelect.value = first.movie_id;
+    movieSearchInput.value = first.title;
+    clearSuggestions();
+
+    // auto-run recommendations
+    await getRecommendations();
+  } catch (err) {
+    console.error(err);
+    setStatus("Search failed. Is the backend running?", "error");
   }
 }
 
@@ -459,6 +494,13 @@ function initUI() {
     clearSuggestions();
     if (searchTimeout) clearTimeout(searchTimeout);
     searchTimeout = setTimeout(handleSearchInput, 250);
+  });
+
+  movieSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      searchAndSelectFirst();
+    }
   });
 
   document.addEventListener("click", (e) => {
